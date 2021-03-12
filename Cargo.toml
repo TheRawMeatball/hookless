@@ -1,0 +1,11 @@
+[package]
+name = "hookless"
+version = "0.1.0"
+authors = ["TheRawMeatball <therawmeatball@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+crossbeam-channel = "0.5"
+replace_with = "0.1.7"
