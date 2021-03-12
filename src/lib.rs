@@ -1,5 +1,6 @@
+#![feature(type_name_of_val)]
 use std::{
-    any::{Any, TypeId},
+    any::{type_name, Any, TypeId},
     collections::HashMap,
     marker::PhantomData,
     ops::{Deref, DerefMut},
@@ -32,7 +33,7 @@ impl<T: 'static> Ctx<T> {
         self.tx
             .send(Box::new(move |x| {
                 let mut c = x.get(id);
-                f(c.state.as_any_mut().downcast_mut().unwrap());
+                f(c.state.as_any_mut().downcast_mut::<T>().unwrap());
                 c.dirty = true;
             }))
             .unwrap();
@@ -64,25 +65,43 @@ pub trait Component: Sized + 'static {
 }
 
 trait DynComponent {
-    fn render(&self, props: &dyn Any, tx: &Tx, id: ComponentId) -> Vec<Element>;
+    fn render(&self, props: &dyn Prop, tx: &Tx, id: ComponentId) -> Vec<Element>;
     fn post_mount(&mut self, track: &mut bool, tx: &Tx, id: ComponentId);
     fn post_update(
         &mut self,
         track: &mut bool,
-        old_props: &dyn Any,
-        new_props: &dyn Any,
+        old_props: &dyn Prop,
+        new_props: &dyn Prop,
         tx: &Tx,
         id: ComponentId,
     );
     fn unmount(self: Box<Self>);
     fn type_of(&self) -> TypeId;
-    fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
+trait Prop {
+    fn print_type(&self);
+    fn as_any(&self) -> &dyn Any;
+}
+
+impl<T: Any> Prop for T {
+    fn print_type(&self) {
+        println!("{}", type_name::<T>())
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
 impl<T: Component> DynComponent for T {
-    fn render(&self, props: &dyn Any, tx: &Tx, id: ComponentId) -> Vec<Element> {
-        self.render(props.downcast_ref().unwrap(), Ctx::new(tx.clone(), id))
+    fn render(&self, props: &dyn Prop, tx: &Tx, id: ComponentId) -> Vec<Element> {
+        dbg!(std::any::type_name_of_val(props));
+        props.print_type();
+        self.render(
+            props.as_any().downcast_ref::<T::Props>().unwrap(),
+            Ctx::new(tx.clone(), id),
+        )
     }
     fn post_mount(&mut self, track: &mut bool, tx: &Tx, id: ComponentId) {
         Self::post_mount(Tracked(self, track), Ctx::new(tx.clone(), id))
@@ -90,15 +109,15 @@ impl<T: Component> DynComponent for T {
     fn post_update(
         &mut self,
         track: &mut bool,
-        old_props: &dyn Any,
-        new_props: &dyn Any,
+        old_props: &dyn Prop,
+        new_props: &dyn Prop,
         tx: &Tx,
         id: ComponentId,
     ) {
         Self::post_update(
             Tracked(self, track),
-            old_props.downcast_ref().unwrap(),
-            new_props.downcast_ref().unwrap(),
+            old_props.as_any().downcast_ref::<T::Props>().unwrap(),
+            new_props.as_any().downcast_ref::<T::Props>().unwrap(),
             Ctx::new(tx.clone(), id),
         )
     }
@@ -108,22 +127,19 @@ impl<T: Component> DynComponent for T {
     fn type_of(&self) -> TypeId {
         TypeId::of::<Self>()
     }
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
 }
 
 pub struct ComponentTemplate {
-    inner: fn(&dyn Any) -> Box<dyn DynComponent>,
-    props: Box<dyn Any>,
+    inner: fn(&dyn Prop) -> Box<dyn DynComponent>,
+    props: Box<dyn Prop>,
 }
 
 struct BuiltComponent {
     state: Box<dyn DynComponent>,
-    props: Box<dyn Any>,
+    props: Box<dyn Prop>,
     dirty: bool,
 }
 
@@ -248,7 +264,7 @@ impl Context {
     pub fn create_element<C: Component>(props: C::Props) -> Element {
         println!("{:?}", std::any::TypeId::of::<C::Props>());
         Element::Component(ComponentTemplate {
-            inner: |v| Box::new(C::new(v.downcast_ref::<C::Props>().unwrap())),
+            inner: |v| Box::new(C::new(v.as_any().downcast_ref::<C::Props>().unwrap())),
             props: Box::new(props),
         })
     }
@@ -285,7 +301,7 @@ impl MountedElement {
                 let mut state = (c.inner)(&*c.props);
                 let id = components.allocate();
                 let mut children: Vec<_> = state
-                    .render(&c.props, &tx, id)
+                    .render(&*c.props, &tx, id)
                     .into_iter()
                     .map(|c| Self::mount(c, dom, components, tx))
                     .collect();
@@ -294,13 +310,13 @@ impl MountedElement {
                 state.post_mount(&mut changed, tx, id);
                 while changed {
                     changed = false;
-                    let mut new_children = state.render(&c.props, tx, id).into_iter();
+                    let mut new_children = state.render(&*c.props, tx, id).into_iter();
                     for child in children.iter_mut() {
                         if let Some(new_child) = new_children.next() {
                             child.diff(new_child, dom, components, tx);
                         }
                     }
-                    state.post_update(&mut changed, &c.props, &c.props, tx, id);
+                    state.post_update(&mut changed, &*c.props, &*c.props, tx, id);
                 }
                 components.fill(
                     id,
@@ -359,7 +375,7 @@ impl MountedElement {
                                 children.push(Self::mount(remaining, dom, components, tx));
                             }
                             bc.state
-                                .post_update(&mut changed, &bc.props, prop_ref, tx, *bcid);
+                                .post_update(&mut changed, &*bc.props, &*prop_ref, tx, *bcid);
 
                             if let Some(np) = new_props.take() {
                                 bc.props = np;
@@ -391,7 +407,7 @@ impl MountedElement {
                 components.with(*id, |c, components| {
                     while c.dirty {
                         c.dirty = false;
-                        let mut new_children = c.state.render(&c.props, tx, *id).into_iter();
+                        let mut new_children = c.state.render(&*c.props, tx, *id).into_iter();
                         let mut remove_index = -1isize;
                         for (i, child) in children.iter_mut().enumerate() {
                             if let Some(new_child) = new_children.next() {
@@ -406,7 +422,7 @@ impl MountedElement {
                             children.push(Self::mount(remaining, dom, components, tx));
                         }
                         c.state
-                            .post_update(&mut c.dirty, &c.props, &c.props, tx, *id);
+                            .post_update(&mut c.dirty, &*c.props, &*c.props, tx, *id);
                     }
                 });
             }
@@ -443,7 +459,7 @@ impl MountedElement {
 
 #[cfg(test)]
 mod test {
-    use std::{collections::HashSet, thread};
+    use std::{collections::HashSet, fmt::Display, thread};
 
     use super::*;
 
@@ -452,6 +468,40 @@ mod test {
         counter: u64,
         roots: HashSet<PrimitiveId>,
         dom: HashMap<PrimitiveId, (Primitive, HashSet<PrimitiveId>)>,
+    }
+
+    impl Display for DemoDom {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            writeln!(f, "The Dom")?;
+            writeln!(f, "=======")?;
+            fn recursor(
+                f: &mut std::fmt::Formatter<'_>,
+                element: PrimitiveId,
+                nest_level: i32,
+                dom: &HashMap<PrimitiveId, (Primitive, HashSet<PrimitiveId>)>,
+            ) -> std::fmt::Result {
+                for _ in 0..=nest_level {
+                    write!(f, "|")?;
+                }
+                let (primitive, children) = dom.get(&element).unwrap();
+                match primitive {
+                    Primitive::Text(text) => writeln!(f, "{}", text)?,
+                    Primitive::Panel => writeln!(f, "[Fancy Panel]")?,
+                }
+                for child in children {
+                    recursor(f, *child, nest_level + 1, dom)?;
+                }
+                Ok(())
+            }
+
+            for (i, root) in self.roots.iter().enumerate() {
+                writeln!(f, "Begin root {}", i + 1)?;
+                recursor(f, *root, 0, &self.dom)?;
+                writeln!(f, "End root {}", i + 1)?;
+            }
+
+            Ok(())
+        }
     }
 
     impl Dom for DemoDom {
@@ -534,7 +584,10 @@ mod test {
         println!("{:?}", std::any::TypeId::of::<()>());
         let mut context = Context::new(Context::create_element::<Blinker>(()), &mut dom);
         loop {
-            context.process_messages(&mut dom);
+            if context.rx.len() > 0 {
+                context.process_messages(&mut dom);
+                println!("{}", &dom);
+            }
         }
     }
 }
