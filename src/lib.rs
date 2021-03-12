@@ -52,7 +52,7 @@ impl<T: 'static> Ctx<T> {
 
 pub trait Component: Sized + 'static {
     const E: fn(Self::Props) -> Element = |p| Context::create_element::<Self>(p);
-    type Props: 'static;
+    type Props: Clone + 'static;
 
     fn render(&self, props: &Self::Props, ctx: Ctx<Self>) -> Vec<Element>;
     fn new(props: &Self::Props) -> Self;
@@ -85,15 +85,27 @@ trait DynComponent {
 
 trait Prop {
     fn print_type(&self);
+    fn dyn_clone(&self) -> Box<dyn Prop>;
     fn as_any(&self) -> &dyn Any;
 }
 
-impl<T: Any> Prop for T {
+impl<T: Any + Clone> Prop for T {
     fn print_type(&self) {
         println!("{}", type_name::<T>())
     }
+
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn dyn_clone(&self) -> Box<dyn Prop> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn Prop> {
+    fn clone(&self) -> Self {
+        (**self).dyn_clone()
     }
 }
 
@@ -133,6 +145,7 @@ impl<T: Component> DynComponent for T {
     }
 }
 
+#[derive(Clone)]
 pub struct ComponentTemplate {
     inner: fn(&dyn Prop) -> Box<dyn DynComponent>,
     props: Box<dyn Prop>,
@@ -270,12 +283,13 @@ impl Context {
         })
     }
 }
-
+#[derive(Clone)]
 pub enum Primitive {
     Text(String),
     Panel,
 }
 
+#[derive(Clone)]
 pub enum Element {
     Primitive(Primitive, Vec<Element>),
     Component(ComponentTemplate),
@@ -405,8 +419,10 @@ impl MountedElement {
     fn rerender_flagged(&mut self, dom: &mut impl Dom, components: &mut Components, tx: &Tx) {
         match self {
             MountedElement::Component(id, children) => {
+                let mut updated_children = false;
                 components.with(*id, |c, components| {
                     while c.dirty {
+                        updated_children = true;
                         c.dirty = false;
                         let mut new_children = c.state.render(&*c.props, tx, *id).into_iter();
                         let mut remove_index = -1isize;
@@ -426,10 +442,17 @@ impl MountedElement {
                             .post_update(&mut c.dirty, &*c.props, &*c.props, tx, *id);
                     }
                 });
+
+                if !updated_children {
+                    for child in children.iter_mut() {
+                        child.rerender_flagged(dom, components, tx);
+                    }
+                }
             }
-            MountedElement::Primitive(_, children) => {
+            MountedElement::Primitive(id, children) => {
                 for child in children {
-                    child.rerender_flagged(dom, components, tx);
+                    let mut dom = dom.get_sub_list(*id);
+                    child.rerender_flagged(&mut dom, components, tx);
                 }
             }
         }
@@ -457,4 +480,3 @@ impl MountedElement {
         MountedElement::Primitive(PrimitiveId(0), vec![])
     }
 }
-

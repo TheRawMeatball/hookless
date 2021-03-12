@@ -2,7 +2,9 @@ use std::thread;
 
 use crossbeam_channel::{Receiver, Sender};
 
-use crate::{Component, Ctx, Element, Primitive, Tracked};
+use crate::{Component, Ctx, Element, Tracked};
+
+use super::Text;
 
 pub struct Blinker {
     state: bool,
@@ -16,9 +18,9 @@ impl Component for Blinker {
 
     fn render(&self, _: &Self::Props, _: Ctx<Self>) -> Vec<Element> {
         if self.state {
-            vec![Element::Primitive(Primitive::Text("Yay!".into()), vec![])]
+            vec![Text::E("Yay!".into())]
         } else {
-            vec![Element::Primitive(Primitive::Text("Nay!".into()), vec![])]
+            vec![Text::E("Nay!".into())]
         }
     }
 

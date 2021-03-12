@@ -1,15 +1,18 @@
 mod blinker;
+mod counter;
+
+use self::counter::Counter;
 
 use super::*;
-use std::{collections::HashSet, fmt::Display};
+use std::fmt::Display;
 
 use blinker::Blinker;
 
 #[derive(Default)]
 struct DemoDom {
     counter: u64,
-    roots: HashSet<PrimitiveId>,
-    dom: HashMap<PrimitiveId, (Primitive, HashSet<PrimitiveId>)>,
+    roots: Vec<PrimitiveId>,
+    dom: HashMap<PrimitiveId, (Primitive, Vec<PrimitiveId>)>,
 }
 
 impl Display for DemoDom {
@@ -20,17 +23,21 @@ impl Display for DemoDom {
             f: &mut std::fmt::Formatter<'_>,
             element: PrimitiveId,
             nest_level: i32,
-            dom: &HashMap<PrimitiveId, (Primitive, HashSet<PrimitiveId>)>,
+            dom: &HashMap<PrimitiveId, (Primitive, Vec<PrimitiveId>)>,
         ) -> std::fmt::Result {
+            let (primitive, children) = if let Some(v) = dom.get(&element) {
+                v
+            } else {
+                return Ok(());
+            };
             for _ in 0..=nest_level {
                 write!(f, "|>")?;
             }
-            let (primitive, children) = dom.get(&element).unwrap();
             match primitive {
                 Primitive::Text(text) => writeln!(f, "{}", text)?,
                 Primitive::Panel => writeln!(f, "[Fancy Panel]")?,
             }
-            for child in children {
+            for child in children.iter().rev() {
                 recursor(f, *child, nest_level + 1, dom)?;
             }
             Ok(())
@@ -52,17 +59,17 @@ impl Dom for DemoDom {
     }
     fn remove(&mut self, id: PrimitiveId) {
         self.dom.remove(&id);
-        self.roots.remove(&id);
+        self.roots.retain(|v| *v != id);
     }
 
     fn mount_as_child(&mut self, primitive: Primitive, parent: Option<PrimitiveId>) -> PrimitiveId {
         let id = PrimitiveId(self.counter);
         self.counter += 1;
-        self.dom.insert(id, (primitive, HashSet::new()));
+        self.dom.insert(id, (primitive, Vec::new()));
         if let Some(pid) = parent {
-            self.dom.get_mut(&pid).unwrap().1.insert(id);
+            self.dom.get_mut(&pid).unwrap().1.push(id);
         } else {
-            self.roots.insert(id);
+            self.roots.push(id);
         }
         id
     }
@@ -77,7 +84,7 @@ fn demo() {
     let mut dom = DemoDom::default();
     println!("{:?}", std::any::TypeId::of::<()>());
     let mut context = Context::new(
-        Element::Primitive(Primitive::Panel, vec![Blinker::E(3), Blinker::E(5)]),
+        Panel::E(vec![Counter::E(()), Blinker::E(3), Blinker::E(5)]),
         &mut dom,
     );
     loop {
@@ -85,5 +92,33 @@ fn demo() {
             context.process_messages(&mut dom);
             println!("{}", &dom);
         }
+    }
+}
+
+pub struct Text;
+
+impl Component for Text {
+    type Props = String;
+
+    fn render(&self, props: &Self::Props, _: Ctx<Self>) -> Vec<Element> {
+        vec![Element::Primitive(Primitive::Text(props.clone()), vec![])]
+    }
+
+    fn new(_: &Self::Props) -> Self {
+        Self
+    }
+}
+
+pub struct Panel;
+
+impl Component for Panel {
+    type Props = Vec<Element>;
+
+    fn render(&self, props: &Self::Props, _: Ctx<Self>) -> Vec<Element> {
+        vec![Element::Primitive(Primitive::Panel, props.clone())]
+    }
+
+    fn new(_: &Self::Props) -> Self {
+        Self
     }
 }
