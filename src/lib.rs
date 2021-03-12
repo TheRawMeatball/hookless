@@ -481,7 +481,7 @@ mod test {
                 dom: &HashMap<PrimitiveId, (Primitive, HashSet<PrimitiveId>)>,
             ) -> std::fmt::Result {
                 for _ in 0..=nest_level {
-                    write!(f, "|")?;
+                    write!(f, "|>")?;
                 }
                 let (primitive, children) = dom.get(&element).unwrap();
                 match primitive {
@@ -536,12 +536,13 @@ mod test {
 
     struct Blinker {
         state: bool,
+        duration: u64,
         tx: Sender<()>,
         rx: Receiver<()>,
     }
 
     impl Component for Blinker {
-        type Props = ();
+        type Props = u64;
 
         fn render(&self, _: &Self::Props, _: Ctx<Self>) -> Vec<Element> {
             if self.state {
@@ -551,19 +552,43 @@ mod test {
             }
         }
 
-        fn new(_: &Self::Props) -> Self {
+        fn new(props: &Self::Props) -> Self {
             let (tx, rx) = crossbeam_channel::bounded(1);
             Self {
                 state: false,
+                duration: *props,
                 tx,
                 rx,
             }
         }
 
+        fn post_update(
+            state: Tracked<Self>,
+            old_props: &Self::Props,
+            new_props: &Self::Props,
+            ctx: Ctx<Self>,
+        ) {
+            if old_props != new_props {
+                let rx = state.rx.clone();
+                let duration = state.duration;
+                state.tx.send(()).unwrap();
+                thread::spawn(move || loop {
+                    std::thread::sleep(std::time::Duration::from_secs(duration));
+                    ctx.mutate_state(|state| {
+                        state.state = !state.state;
+                    });
+                    if rx.try_recv().is_ok() {
+                        break;
+                    }
+                });
+            }
+        }
+
         fn post_mount(state: Tracked<Self>, ctx: Ctx<Self>) {
             let rx = state.rx.clone();
+            let duration = state.duration;
             thread::spawn(move || loop {
-                std::thread::sleep(std::time::Duration::from_secs(1));
+                std::thread::sleep(std::time::Duration::from_secs(duration));
                 ctx.mutate_state(|state| {
                     state.state = !state.state;
                 });
@@ -582,7 +607,11 @@ mod test {
     fn demo() {
         let mut dom = DemoDom::default();
         println!("{:?}", std::any::TypeId::of::<()>());
-        let mut context = Context::new(Context::create_element::<Blinker>(()), &mut dom);
+        let blinker = |v| Context::create_element::<Blinker>(v);
+        let mut context = Context::new(
+            Element::Primitive(Primitive::Panel, vec![blinker(3), blinker(5)]),
+            &mut dom,
+        );
         loop {
             if context.rx.len() > 0 {
                 context.process_messages(&mut dom);
