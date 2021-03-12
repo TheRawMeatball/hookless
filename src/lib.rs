@@ -49,6 +49,7 @@ impl<T: 'static> Ctx<T> {
 }
 
 pub trait Component: Sized + 'static {
+    const E: fn(Self::Props) -> Element = |p| Context::create_element::<Self>(p);
     type Props: 'static;
 
     fn render(&self, props: &Self::Props, ctx: Ctx<Self>) -> Vec<Element>;
@@ -607,9 +608,8 @@ mod test {
     fn demo() {
         let mut dom = DemoDom::default();
         println!("{:?}", std::any::TypeId::of::<()>());
-        let blinker = |v| Context::create_element::<Blinker>(v);
         let mut context = Context::new(
-            Element::Primitive(Primitive::Panel, vec![blinker(3), blinker(5)]),
+            Element::Primitive(Primitive::Panel, vec![Blinker::E(3), Blinker::E(5)]),
             &mut dom,
         );
         loop {
