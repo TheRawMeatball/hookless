@@ -147,7 +147,7 @@ impl<T: Component> DynComponent for T {
 
 #[derive(Clone)]
 pub struct ComponentTemplate {
-    inner: fn(&dyn Prop) -> Box<dyn DynComponent>,
+    new: fn(&dyn Prop) -> Box<dyn DynComponent>,
     props: Box<dyn Prop>,
 }
 
@@ -276,9 +276,8 @@ impl Context {
     }
 
     pub fn create_element<C: Component>(props: C::Props) -> Element {
-        println!("{:?}", std::any::TypeId::of::<C::Props>());
         Element::Component(ComponentTemplate {
-            inner: |v| Box::new(C::new(v.as_any().downcast_ref::<C::Props>().unwrap())),
+            new: |v| Box::new(C::new(v.as_any().downcast_ref::<C::Props>().unwrap())),
             props: Box::new(props),
         })
     }
@@ -313,7 +312,7 @@ impl MountedElement {
                 Self::Primitive(id, children)
             }
             Element::Component(c) => {
-                let mut state = (c.inner)(&*c.props);
+                let mut state = (c.new)(&*c.props);
                 let id = components.allocate();
                 let mut children: Vec<_> = state
                     .render(&*c.props, &tx, id)
@@ -478,5 +477,41 @@ impl MountedElement {
 
     fn broken() -> Self {
         MountedElement::Primitive(PrimitiveId(0), vec![])
+    }
+}
+
+struct FnComponent<F: Fn(&P), P: Prop> {
+    states: Vec<(Box<dyn Any>, bool)>,
+    _m: PhantomData<fn() -> (F, P)>,
+}
+
+impl<F: Fn(&P), P: Prop> FnComponent<F, P> {
+    fn assert_valid() {
+        assert_eq!(std::mem::size_of::<F>(), 0)
+    }
+}
+
+impl<F: Fn(&P) + 'static, P: Prop + Clone + 'static> Component for FnComponent<F, P> {
+    const E: fn(Self::Props) -> Element = |p| Context::create_element::<Self>(p);
+
+    type Props = P;
+
+    fn render(&self, props: &Self::Props, ctx: Ctx<Self>) -> Vec<Element> {
+        todo!()
+    }
+
+    fn new(props: &Self::Props) -> Self {
+        todo!()
+    }
+}
+
+trait ComponentFn<P> {
+    fn e(self, props: P) -> Element;
+}
+
+impl<P: Clone + 'static, Func: Fn(&P) + 'static> ComponentFn<P> for Func {
+    fn e(self, props: P) -> Element {
+        FnComponent::<Func, P>::assert_valid();
+        FnComponent::<Func, P>::E(props)
     }
 }
