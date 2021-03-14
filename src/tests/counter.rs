@@ -47,9 +47,7 @@ pub fn fnc_counter(ctx: Fctx) {
                 break;
             }
         });
-        move || {
-            tx.send(()).unwrap();
-        }
+        move || tx.send(()).unwrap()
     });
 
     ctx.render(|| vec![Text::E(format!("{} seconds since creation!", state))]);

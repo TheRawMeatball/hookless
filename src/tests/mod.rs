@@ -84,7 +84,7 @@ fn demo() {
     let mut dom = DemoDom::default();
     println!("{:?}", std::any::TypeId::of::<()>());
     let mut context = Context::new(
-        Panel::E(vec![fnc_counter.e(()), Blinker::E(3), Blinker::E(5)]),
+        Panel::E(vec![fnc_counter.e(()), fnc_blinker.e((3,)), Blinker::E(5)]),
         &mut dom,
     );
     loop {
