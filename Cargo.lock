@@ -3,6 +3,10 @@
 version = 3
 
 [[package]]
+name = "append-vec"
+version = "0.1.0"
+
+[[package]]
 name = "autocfg"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -39,6 +43,7 @@ dependencies = [
 name = "hookless"
 version = "0.1.0"
 dependencies = [
+ "append-vec",
  "crossbeam-channel",
  "replace_with",
 ]

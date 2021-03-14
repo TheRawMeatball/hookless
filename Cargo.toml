@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 crossbeam-channel = "0.5"
 replace_with = "0.1.7"
+append-vec = { path = "../append-vec" }

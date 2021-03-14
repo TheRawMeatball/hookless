@@ -1,12 +1,12 @@
 mod blinker;
 mod counter;
 
-use self::counter::Counter;
 
 use super::*;
 use std::fmt::Display;
 
-use blinker::Blinker;
+use counter::*;
+use blinker::*;
 
 #[derive(Default)]
 struct DemoDom {
@@ -84,7 +84,7 @@ fn demo() {
     let mut dom = DemoDom::default();
     println!("{:?}", std::any::TypeId::of::<()>());
     let mut context = Context::new(
-        Panel::E(vec![Counter::E(()), Blinker::E(3), Blinker::E(5)]),
+        Panel::E(vec![fnc_counter.e(()), Blinker::E(3), Blinker::E(5)]),
         &mut dom,
     );
     loop {
@@ -104,7 +104,7 @@ impl Component for Text {
         vec![Element::Primitive(Primitive::Text(props.clone()), vec![])]
     }
 
-    fn new(_: &Self::Props) -> Self {
+    fn new(_: &Self::Props, _: Ctx<Self>) -> Self {
         Self
     }
 }
@@ -118,7 +118,7 @@ impl Component for Panel {
         vec![Element::Primitive(Primitive::Panel, props.clone())]
     }
 
-    fn new(_: &Self::Props) -> Self {
+    fn new(_: &Self::Props, _: Ctx<Self>) -> Self {
         Self
     }
 }

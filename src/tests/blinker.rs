@@ -1,6 +1,6 @@
 use std::thread;
 
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::Sender;
 
 use crate::{Component, Ctx, Element, Tracked};
 
@@ -10,7 +10,6 @@ pub struct Blinker {
     state: bool,
     duration: u64,
     tx: Sender<()>,
-    rx: Receiver<()>,
 }
 
 impl Component for Blinker {
@@ -18,32 +17,42 @@ impl Component for Blinker {
 
     fn render(&self, _: &Self::Props, _: Ctx<Self>) -> Vec<Element> {
         if self.state {
-            vec![Text::E("Yay!".into())]
+            vec![Text::E(format!("Yay! - Period = {}", self.duration))]
         } else {
-            vec![Text::E("Nay!".into())]
+            vec![Text::E(format!("Nay! - Period = {}", self.duration))]
         }
     }
 
-    fn new(props: &Self::Props) -> Self {
+    fn new(props: &Self::Props, ctx: Ctx<Self>) -> Self {
         let (tx, rx) = crossbeam_channel::bounded(1);
+        let duration = *props;
+        thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_secs(duration));
+            ctx.mutate_state(|state| {
+                state.state = !state.state;
+            });
+            if rx.try_recv().is_ok() {
+                break;
+            }
+        });
         Self {
             state: false,
             duration: *props,
             tx,
-            rx,
         }
     }
 
     fn post_update(
-        state: Tracked<Self>,
+        mut state: Tracked<Self>,
         old_props: &Self::Props,
         new_props: &Self::Props,
         ctx: Ctx<Self>,
     ) {
         if old_props != new_props {
-            let rx = state.rx.clone();
-            let duration = state.duration;
             state.tx.send(()).unwrap();
+            let (tx, rx) = crossbeam_channel::bounded(1);
+            state.tx = tx;
+            let duration = state.duration;
             thread::spawn(move || loop {
                 std::thread::sleep(std::time::Duration::from_secs(duration));
                 ctx.mutate_state(|state| {
@@ -54,20 +63,6 @@ impl Component for Blinker {
                 }
             });
         }
-    }
-
-    fn post_mount(state: Tracked<Self>, ctx: Ctx<Self>) {
-        let rx = state.rx.clone();
-        let duration = state.duration;
-        thread::spawn(move || loop {
-            std::thread::sleep(std::time::Duration::from_secs(duration));
-            ctx.mutate_state(|state| {
-                state.state = !state.state;
-            });
-            if rx.try_recv().is_ok() {
-                break;
-            }
-        });
     }
 
     fn unmount(self) {
